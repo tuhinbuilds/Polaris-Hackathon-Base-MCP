@@ -1,11 +1,14 @@
-"""Baseline catalog search. Improve retrieval here without changing the schemas."""
+"""Indexed catalog search with natural-language query understanding."""
 import json
 import math
 import re
 from functools import lru_cache
 from pathlib import Path
+from typing import Any, Dict, List
 
 from jsonschema import Draft202012Validator, ValidationError
+
+from index import InvertedIndex
 
 ROOT = Path(__file__).resolve().parent
 INPUT_SCHEMA = json.loads((ROOT / 'schemas/input.schema.json').read_text())
@@ -34,8 +37,9 @@ def tokens(text):
 
 
 class Catalog:
-    def __init__(self, products):
+    def __init__(self, products: List[Dict[str, Any]]):
         self.products = sorted(products, key=lambda p: p['id'])
+        self.index = InvertedIndex(self.products)
         self.words = {
             p['id']: set(tokens(' '.join(str(p.get(k) or '') for k in
                 ('name', 'description', *STRING_FILTERS)))) for p in self.products
@@ -46,7 +50,7 @@ class Catalog:
         return cls(json.loads(Path(path).read_text(encoding='utf-8')))
 
     def relevance(self, product, query_tokens):
-        """Student extension: replace this strict lexical baseline with better retrieval."""
+        """Preserved extension point: lexical token relevance."""
         words = self.words[product['id']]
         if not all(word in words for word in query_tokens):
             return 0
@@ -54,8 +58,8 @@ class Catalog:
         return 1 + sum(word in name_words for word in query_tokens)
 
     def recommend(self, results, arguments):
-        """Student extension: return up to five complementary product references."""
-        return []
+        """Generates catalog-grounded complementary recommendations."""
+        return self.index.recommend(results, arguments)
 
     @staticmethod
     def matches(product, filters):
@@ -70,31 +74,6 @@ class Catalog:
                      (average is not None and average >= filters['min_rating']))
                 and product['rating']['count'] >= filters.get('min_review_count', 0))
 
-    def search(self, arguments):
+    def search(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         validate_arguments(arguments)
-        query = tokens(arguments.get('query', '').strip())
-        filters = arguments.get('filters', {})
-        candidates = [p for p in self.products if self.matches(p, filters)]
-        scores = {}
-        if query:
-            scores = {p['id']: self.relevance(p, query) for p in candidates}
-            candidates = [p for p in candidates if scores[p['id']] > 0]
-        sort_by = arguments.get('sort_by', 'relevance')
-        reverse = arguments.get('sort_order', 'desc') == 'desc'
-        # Stable sort preserves ascending ID for equal keys, in either direction.
-        if sort_by == 'relevance':
-            if query:
-                candidates.sort(key=lambda p: scores[p['id']], reverse=reverse)
-        elif sort_by == 'rating':
-            rated = [p for p in candidates if p['rating']['average'] is not None]
-            unrated = [p for p in candidates if p['rating']['average'] is None]
-            rated.sort(key=lambda p: p['rating']['average'], reverse=reverse)
-            candidates = rated + unrated
-        else:
-            key = {'id': lambda p: p['id'], 'price': lambda p: p['price']['amount'],
-                   'review_count': lambda p: p['rating']['count']}[sort_by]
-            candidates.sort(key=key, reverse=reverse)
-        offset, limit = arguments.get('offset', 0), arguments.get('limit', 10)
-        results = [{'id': p['id']} for p in candidates[offset:offset + limit]]
-        return {'results': results, 'recommendations':
-                self.recommend(results, arguments) if results and arguments.get('include_recommendations', False) else []}
+        return self.index.search(arguments)

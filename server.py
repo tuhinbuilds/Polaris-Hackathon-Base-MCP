@@ -35,6 +35,7 @@ async def call_tool(name, arguments):
 
 
 security = TransportSecuritySettings(
+    enable_dns_rebinding_protection=True,
     allowed_hosts=[h.strip() for h in os.getenv('MCP_ALLOWED_HOSTS',
         'localhost:*,127.0.0.1:*,[::1]:*').split(',') if h.strip()],
     allowed_origins=[o.strip() for o in os.getenv('MCP_ALLOWED_ORIGINS', '').split(',') if o.strip()],
