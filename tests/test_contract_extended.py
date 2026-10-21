@@ -94,6 +94,19 @@ class ExtendedContractTests(unittest.TestCase):
         """Out of domain requests with terms not in catalog return empty arrays."""
         self.assertEqual(self.ids(query='spaceship engine'), [])
         self.assertEqual(self.ids(query='diesel car tire'), [])
+        self.assertEqual(self.ids(query='quantum computer'), [])
+        self.assertEqual(self.ids(query='fresh organic bananas'), [])
+
+    def test_exact_product_id_query(self):
+        """Querying by product ID directly retrieves that exact product."""
+        self.assertEqual(self.ids(query='001'), ['001'])
+        self.assertEqual(self.ids(query='003'), ['003'])
+        # Conflicting filter on color returns empty
+        self.assertEqual(self.ids(query='001', filters={'color': 'Blue'}), [])
+
+    def test_typo_correction_resilience(self):
+        """Common typos in fashion terms are corrected without breaking queries."""
+        self.assertEqual(self.ids(query='coton T-shirt'), ['001', '005'])
 
     def test_schema_bound_rejections(self):
         """Rejects out of bound arguments per input.schema.json."""

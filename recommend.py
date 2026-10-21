@@ -256,12 +256,16 @@ class CategoryAffinityRecommender:
                     cand_aud = str(cand.get('audience') or '').strip()
                     cand_col = str(cand.get('color') or '').strip()
 
+                    # Invariant 4: Audience compatibility (never cross gender/age demographics)
+                    if aud_cluster and cand_aud and cand_aud not in aud_cluster:
+                        continue
+
                     score = 0.0
                     # Audience match bonus
-                    if aud_cluster and cand_aud in aud_cluster:
+                    if cand_aud == primary_aud:
+                        score += 25.0
+                    elif aud_cluster and cand_aud in aud_cluster:
                         score += 15.0
-                    elif cand_aud == primary_aud:
-                        score += 20.0
 
                     # Color coordination bonus
                     if primary_color and cand_col:

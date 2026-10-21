@@ -6,25 +6,21 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 STOPWORDS: Set[str] = {
     'a', 'an', 'the', 'for', 'with', 'in', 'of', 'at', 'to', 'from', 'on', 'by',
     'and', 'or', 'is', 'it', 'my', 'me', 'i', 'looking', 'look', 'want', 'need',
-    'find', 'get', 'show', 'please', 'something'
+    'find', 'get', 'show', 'please', 'something', 's', 'pair', 'pairs', 'set',
+    'piece', 'pieces', 'item', 'items'
 }
 
 SYNONYMS: Dict[str, str] = {
-    'sneakers': 'trainers',
-    'shades': 'sunglasses',
-    'sneaker': 'trainers',
+    'sneaker': 'sneakers',
     'trainer': 'trainers',
-    'tees': 't-shirt',
-    'tee': 't-shirt',
+    'shades': 'sunglasses',
+    'sunglass': 'sunglasses',
     'pant': 'trousers',
     'pants': 'trousers',
     'jogger': 'joggers',
     'sweatpant': 'sweatpants',
     'hoodies': 'hoodie',
-    'suit': 'blazer',
-    'suits': 'blazer',
-    'shirts': 'shirt',
-    'striped': 'stripe',
+    'suits': 'suit',
     'skirts': 'skirt',
     'jackets': 'jacket',
     'coats': 'coat',
@@ -32,6 +28,15 @@ SYNONYMS: Dict[str, str] = {
     'sweaters': 'sweater',
     'cardigans': 'cardigan',
     'blouses': 'blouse',
+    'shirts': 'shirt',
+    'tees': 'tee',
+    'jean': 'jeans',
+    'boot': 'boots',
+    'sandal': 'sandals',
+    'heel': 'heels',
+    'pajamas': 'pyjamas',
+    'pajama': 'pyjamas',
+    'pyjama': 'pyjamas',
 }
 
 OCCASION_INTENTS: List[Tuple[re.Pattern, List[str]]] = [
@@ -116,7 +121,8 @@ KNOWN_FASHION_WORDS: Set[str] = {
     'suit', 'suits', 'blazer', 'blazers', 'dress', 'dresses', 'tshirt', 't-shirt',
     'shirt', 'shirts', 'trousers', 'trouser', 'pants', 'jeans', 'jean', 'skirt', 'skirts',
     'shorts', 'sweater', 'sweaters', 'cardigan', 'hoodie', 'jacket', 'coat', 'tie',
-    'bag', 'bags', 'shoes', 'boots', 'sandals', 'sneakers', 'trainers', 'scarf', 'hat', 'belt'
+    'bag', 'bags', 'shoes', 'boots', 'sandals', 'sneakers', 'trainers', 'scarf', 'hat', 'belt',
+    'tee', 'tees'
 }
 
 
@@ -135,16 +141,18 @@ def damerau_levenshtein_2(word: str) -> Set[str]:
 
 
 def correct_typo(token: str, vocab: Dict[str, int]) -> str:
-    """Corrects token if it's an out-of-vocabulary fashion typo."""
-    if len(token) < 4 or token in KNOWN_FASHION_WORDS or vocab.get(token, 0) >= 5:
+    """Corrects token ONLY if it is completely absent from the catalog vocabulary."""
+    if vocab.get(token, 0) > 0:
+        return token
+    if len(token) < 4:
         return token
     # Try distance 1
-    d1 = [w for w in damerau_levenshtein_1(token) if vocab.get(w, 0) >= 20]
+    d1 = [w for w in damerau_levenshtein_1(token) if vocab.get(w, 0) >= 1]
     if d1:
         return max(d1, key=lambda w: vocab[w])
     # Try distance 2 for longer words
     if len(token) >= 6:
-        d2 = [w for w in damerau_levenshtein_2(token) if vocab.get(w, 0) >= 50]
+        d2 = [w for w in damerau_levenshtein_2(token) if vocab.get(w, 0) >= 1]
         if d2:
             return max(d2, key=lambda w: vocab[w])
     return token
@@ -202,7 +210,9 @@ def preprocess_query(
             expanded_intent_tokens.extend(intent_words)
 
     # 4. Tokenization & Token Processing
-    raw_tokens = tuple(re.findall(r'\w+', text.casefold()))
+    # Handle possessives e.g. women's -> women
+    cleaned_punc = re.sub(r"['’]s\b", '', text, flags=re.IGNORECASE)
+    raw_tokens = tuple(re.findall(r'[a-z0-9]+', cleaned_punc.casefold()))
 
     inferred_color: Optional[str] = None
     inferred_audience: Optional[str] = None
@@ -228,14 +238,14 @@ def preprocess_query(
 
         processed_tokens.append(resolved)
 
-    # 5. Filter Stopwords and extracted demographic words (if other product terms exist)
+    # 5. Filter Stopwords
     meaningful_tokens = [t for t in processed_tokens if t not in STOPWORDS]
     # If other product terms exist besides the audience word, strip the audience word from text tokens
     if len(meaningful_tokens) > 1 and audience_words_seen:
         meaningful_tokens = [t for t in meaningful_tokens if t not in audience_words_seen]
 
     if not meaningful_tokens and processed_tokens:
-        meaningful_tokens = processed_tokens  # fallback if query was only stopwords
+        meaningful_tokens = [t for t in processed_tokens if t not in {'s'}] or processed_tokens
 
     # Ensure uniqueness while preserving order
     seen = set()

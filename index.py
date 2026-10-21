@@ -10,6 +10,88 @@ from recommend import CategoryAffinityRecommender, split_complement_query
 
 STRING_FILTERS = ('category', 'product_type', 'color', 'audience', 'section', 'pattern')
 
+TARGET_PRODUCT_TYPES: Dict[str, Set[str]] = {
+    'dress': {'Dress'},
+    'dresses': {'Dress'},
+    'gown': {'Dress'},
+    'gowns': {'Dress'},
+    'shirt': {'Shirt', 'T-shirt', 'Polo shirt'},
+    'shirts': {'Shirt', 'T-shirt', 'Polo shirt'},
+    'tshirt': {'T-shirt'},
+    't-shirt': {'T-shirt'},
+    'tshirts': {'T-shirt'},
+    'top': {'Top', 'Vest top', 'T-shirt'},
+    'tops': {'Top', 'Vest top', 'T-shirt'},
+    'blouse': {'Blouse'},
+    'blouses': {'Blouse'},
+    'sweater': {'Sweater', 'Cardigan'},
+    'sweaters': {'Sweater', 'Cardigan'},
+    'cardigan': {'Cardigan'},
+    'cardigans': {'Cardigan'},
+    'hoodie': {'Hoodie'},
+    'hoodies': {'Hoodie'},
+    'jacket': {'Jacket', 'Coat'},
+    'jackets': {'Jacket', 'Coat'},
+    'coat': {'Coat', 'Jacket'},
+    'coats': {'Coat', 'Jacket'},
+    'blazer': {'Blazer', 'Suit'},
+    'blazers': {'Blazer', 'Suit'},
+    'suit': {'Suit', 'Blazer'},
+    'suits': {'Suit', 'Blazer'},
+    'jeans': {'Trousers'},
+    'jean': {'Trousers'},
+    'trousers': {'Trousers'},
+    'trouser': {'Trousers'},
+    'pants': {'Trousers'},
+    'pant': {'Trousers'},
+    'joggers': {'Trousers'},
+    'jogger': {'Trousers'},
+    'shorts': {'Shorts'},
+    'skirt': {'Skirt'},
+    'skirts': {'Skirt'},
+    'shoes': {'Sneakers', 'Boots', 'Sandals', 'Other shoe', 'Pumps', 'Heeled sandals', 'Ballerinas', 'Slippers', 'Espadrilles', 'Flip flop', 'Wedge'},
+    'shoe': {'Sneakers', 'Boots', 'Sandals', 'Other shoe', 'Pumps', 'Heeled sandals', 'Ballerinas', 'Slippers', 'Espadrilles', 'Flip flop', 'Wedge'},
+    'sneakers': {'Sneakers', 'Trainers'},
+    'sneaker': {'Sneakers', 'Trainers'},
+    'trainers': {'Sneakers', 'Trainers'},
+    'trainer': {'Sneakers', 'Trainers'},
+    'boots': {'Boots'},
+    'boot': {'Boots'},
+    'sandals': {'Sandals', 'Heeled sandals'},
+    'sandal': {'Sandals', 'Heeled sandals'},
+    'bag': {'Bag'},
+    'bags': {'Bag'},
+    'handbag': {'Bag'},
+    'handbags': {'Bag'},
+    'backpack': {'Bag'},
+    'scarf': {'Scarf'},
+    'scarves': {'Scarf'},
+    'hat': {'Hat/beanie', 'Hat/brim', 'Cap/peaked'},
+    'hats': {'Hat/beanie', 'Hat/brim', 'Cap/peaked'},
+    'cap': {'Cap/peaked'},
+    'belt': {'Belt'},
+    'belts': {'Belt'},
+    'tie': {'Tie'},
+    'ties': {'Tie'},
+    'sunglasses': {'Sunglasses'},
+    'shades': {'Sunglasses'},
+    'swimwear': {'Swimsuit', 'Swimwear bottom', 'Bikini top'},
+    'swimsuit': {'Swimsuit'},
+    'bikini': {'Bikini top', 'Swimwear bottom'},
+    'pyjamas': {'Pyjama set', 'Pyjama jumpsuit/playsuit', 'Pyjama bottom'},
+    'pajamas': {'Pyjama set', 'Pyjama jumpsuit/playsuit', 'Pyjama bottom'},
+    'sleepwear': {'Pyjama set', 'Night gown'},
+    'socks': {'Socks'},
+    'leggings': {'Leggings/Tights', 'Trousers'},
+}
+
+AUDIENCE_CLUSTERS: Dict[str, Set[str]] = {
+    'Ladieswear': {'Ladieswear', 'Divided', 'Ladies Accessories', 'Lingeries/Tights'},
+    'Menswear': {'Menswear'},
+    'Children Sizes 92-140': {'Children Sizes 92-140', 'Children Sizes 134-170', 'Children Accessories, Swimwear'},
+    'Baby Sizes 50-98': {'Baby Sizes 50-98'},
+}
+
 
 class InvertedIndex:
     def __init__(self, products: List[Dict[str, Any]]):
@@ -17,8 +99,9 @@ class InvertedIndex:
         self.products = sorted(products, key=lambda p: p['id'])
         self.num_docs = len(self.products)
 
-        # 2. Extract fast lookup arrays
+        # 2. Extract fast lookup arrays and id mapping
         self.ids = [p['id'] for p in self.products]
+        self.id_to_idx: Dict[str, int] = {p['id']: i for i, p in enumerate(self.products)}
         self.prices = [p['price']['amount'] for p in self.products]
         self.ratings = [p['rating']['average'] for p in self.products]
         self.review_counts = [p['rating']['count'] for p in self.products]
@@ -39,6 +122,11 @@ class InvertedIndex:
 
         # Build indexes in single pass
         for i, p in enumerate(self.products):
+            # Index product ID directly
+            pid = p['id']
+            self.text_postings[pid].append(i)
+            self.doc_freq[pid] += 1
+
             # Record filter values
             for f in STRING_FILTERS:
                 val = p.get(f)
@@ -49,13 +137,23 @@ class InvertedIndex:
                         self.colors.add(str(val).strip())
 
             # Tokenize fields
-            name_tokens = set(re.findall(r'\w+', (p.get('name') or '').casefold()))
-            type_tokens = set(re.findall(r'\w+', (p.get('product_type') or '').casefold()))
-            cat_tokens = set(re.findall(r'\w+', (p.get('category') or '').casefold()))
-            attr_tokens = set(re.findall(r'\w+', ' '.join(
-                str(p.get(k) or '') for k in ('audience', 'section', 'color', 'pattern')
-            ).casefold()))
-            desc_tokens = set(re.findall(r'\w+', (p.get('description') or '').casefold()))
+            name_str = (p.get('name') or '').casefold()
+            type_str = (p.get('product_type') or '').casefold()
+            cat_str = (p.get('category') or '').casefold()
+            attr_str = ' '.join(str(p.get(k) or '') for k in ('audience', 'section', 'color', 'pattern')).casefold()
+            desc_str = (p.get('description') or '').casefold()
+
+            name_tokens = set(re.findall(r'[a-z0-9]+', name_str))
+            type_tokens = set(re.findall(r'[a-z0-9]+', type_str))
+            cat_tokens = set(re.findall(r'[a-z0-9]+', cat_str))
+            attr_tokens = set(re.findall(r'[a-z0-9]+', attr_str))
+            desc_tokens = set(re.findall(r'[a-z0-9]+', desc_str))
+
+            # Add compound forms for common hyphenated terms (e.g. t-shirt -> tshirt)
+            if 't' in name_tokens and 'shirt' in name_tokens:
+                name_tokens.add('tshirt')
+            if 't' in type_tokens and 'shirt' in type_tokens:
+                type_tokens.add('tshirt')
 
             all_doc_words = name_tokens | type_tokens | cat_tokens | attr_tokens | desc_tokens
 
@@ -91,13 +189,33 @@ class InvertedIndex:
         reverse: bool,
     ) -> List[int]:
         """Retrieves and ranks candidate document indices for a single intent."""
-        # 1. Natural Language Preprocessing
+        clean_raw_query = query_str.strip()
+
+        # 1. Exact Product ID Fast-Path
+        if clean_raw_query in self.id_to_idx:
+            idx = self.id_to_idx[clean_raw_query]
+            p = self.products[idx]
+            # Verify explicit filters
+            for k in STRING_FILTERS:
+                if k in filters and str(p.get(k) or '').strip().casefold() != str(filters[k]).strip().casefold():
+                    return []
+            p_price = p['price']['amount']
+            if p_price < filters.get('min_price', 0) or p_price > filters.get('max_price', math.inf):
+                return []
+            p_avg = p['rating']['average']
+            if 'min_rating' in filters and (p_avg is None or p_avg < filters['min_rating']):
+                return []
+            if p['rating']['count'] < filters.get('min_review_count', 0):
+                return []
+            return [idx]
+
+        # 2. Natural Language Preprocessing
         prep = preprocess_query(query_str, filters, self.doc_freq, self.colors)
 
         if prep.is_impossible:
             return []
 
-        # 2. String Filter Candidate Intersections
+        # 3. String Filter Candidate Intersections
         candidate_set: Optional[Set[int]] = None
         for key in STRING_FILTERS:
             if key in filters:
@@ -110,7 +228,7 @@ class InvertedIndex:
                 if not candidate_set:
                     return []
 
-        # 3. Numeric Bounds (Explicit + Query Inferred)
+        # 4. Numeric Bounds (Explicit + Query Inferred)
         explicit_min_p = filters.get('min_price', 0)
         explicit_max_p = filters.get('max_price', math.inf)
         eff_min_price = max(explicit_min_p, prep.inferred_min_price or 0)
@@ -119,13 +237,13 @@ class InvertedIndex:
         min_rating = filters.get('min_rating')
         min_reviews = filters.get('min_review_count', 0)
 
-        # 4. Text Retrieval & Candidate Selection
+        # 5. Text Retrieval & Candidate Selection
         has_query = bool(prep.tokens or prep.expanded_tokens)
         candidate_indices: List[int] = []
         scores: Dict[int, float] = {}
 
         if not has_query:
-            # Empty query path
+            # Empty query path: all matching explicit filters
             source_indices = candidate_set if candidate_set is not None else range(self.num_docs)
             for i in source_indices:
                 p_amount = self.prices[i]
@@ -138,47 +256,56 @@ class InvertedIndex:
                     continue
                 candidate_indices.append(i)
         else:
-            # Query candidate scoring
-            primary_tokens = prep.tokens
-            expanded_tokens = prep.expanded_tokens
+            primary_tokens = [t for t in prep.tokens if t not in {'s'}]
+            expanded_tokens = list(prep.expanded_tokens)
 
-            # Out-of-catalog / impossible query check
-            if primary_tokens:
-                missing_impossible = any(
-                    t not in self.text_postings and t not in OCCASION_WORDS
-                    for t in primary_tokens
-                )
-                if missing_impossible and not expanded_tokens:
-                    return []
+            # Determine Target Product Types from query
+            target_types: Set[str] = set()
+            for t in primary_tokens:
+                if t in TARGET_PRODUCT_TYPES:
+                    target_types.update(TARGET_PRODUCT_TYPES[t])
 
-            # Gather postings: prioritize non-occasion catalog garment tokens
-            garment_tokens = [t for t in primary_tokens if t not in OCCASION_WORDS and t in self.text_postings]
-            target_tokens = garment_tokens if garment_tokens else [t for t in primary_tokens if t in self.text_postings]
+            # Out-of-catalog abstention: If ANY primary token is unknown and not in OCCASION_WORDS
+            missing_impossible = any(
+                t not in self.text_postings and t not in OCCASION_WORDS
+                for t in primary_tokens
+            )
+            if missing_impossible and not expanded_tokens:
+                return []
+
+            target_tokens = [t for t in primary_tokens if t in self.text_postings]
             if not target_tokens and expanded_tokens:
                 target_tokens = [t for t in expanded_tokens if t in self.text_postings]
 
             if not target_tokens:
                 return []
 
-            token_postings: List[List[int]] = [self.text_postings[t] for t in target_tokens]
+            # Determine audience cluster filter if audience was inferred
+            allowed_audiences: Optional[Set[str]] = None
+            if prep.inferred_audience and 'audience' not in filters:
+                allowed_audiences = AUDIENCE_CLUSTERS.get(prep.inferred_audience)
 
             # Tally token occurrences
             hit_counts = Counter()
-            for postings in token_postings:
-                for idx in postings:
+            for t in target_tokens:
+                for idx in self.text_postings[t]:
                     hit_counts[idx] += 1
 
             if not hit_counts:
                 return []
 
-            # Candidate tiering: require all target tokens to match first
             num_tokens = len(target_tokens)
+
+            # Tier 1: All target tokens matched
             candidates = [idx for idx, count in hit_counts.items() if count == num_tokens]
 
-            # Relaxation only if ZERO candidates match all tokens
+            # Relaxation ONLY if ZERO candidates match all tokens
+            # For 2-token queries, only relax if at least one token is a recognized fashion garment type
             if not candidates and num_tokens > 1:
-                candidates = [idx for idx, count in hit_counts.items() if count >= num_tokens - 1]
+                if num_tokens >= 3 or bool(target_types):
+                    candidates = [idx for idx, count in hit_counts.items() if count >= num_tokens - 1]
 
+            # Fallback for expanded intent tokens (e.g. occasion queries)
             if not candidates and expanded_tokens:
                 candidates = list(hit_counts.keys())
 
@@ -186,7 +313,14 @@ class InvertedIndex:
             if candidate_set is not None:
                 candidates = [i for i in candidates if i in candidate_set]
 
-            # Score each candidate and enforce numeric bounds
+            # Filter by audience cluster if audience was inferred
+            if allowed_audiences is not None:
+                aud_filtered = [i for i in candidates if self.products[i].get('audience') in allowed_audiences]
+                if aud_filtered:
+                    candidates = aud_filtered
+
+            # Score each candidate
+            clean_query_lower = clean_raw_query.casefold()
             query_tokens_for_scoring = tuple(set(primary_tokens) | set(expanded_tokens))
 
             for i in candidates:
@@ -200,7 +334,12 @@ class InvertedIndex:
                 if self.review_counts[i] < min_reviews:
                     continue
 
-                # Compute Field-Weighted BM25-style Relevance Score
+                p = self.products[i]
+                p_name = (p.get('name') or '').casefold()
+                p_type = p.get('product_type') or ''
+                p_color = (p.get('color') or '').strip()
+
+                # Base multi-field BM25 score
                 score = 0.0
                 terms_matched = 0
 
@@ -208,16 +347,16 @@ class InvertedIndex:
                     idf = self.get_idf(t)
                     matched_in_doc = False
 
-                    if i in self.name_postings[t]:
+                    if i in self.name_postings.get(t, ()):
+                        score += 6.0 * idf
+                        matched_in_doc = True
+                    elif i in self.type_postings.get(t, ()):
                         score += 5.0 * idf
                         matched_in_doc = True
-                    elif i in self.type_postings[t]:
-                        score += 4.0 * idf
+                    elif i in self.category_postings.get(t, ()):
+                        score += 3.0 * idf
                         matched_in_doc = True
-                    elif i in self.category_postings[t]:
-                        score += 2.5 * idf
-                        matched_in_doc = True
-                    elif i in self.attribute_postings[t]:
+                    elif i in self.attribute_postings.get(t, ()):
                         score += 2.0 * idf
                         matched_in_doc = True
                     elif t in self.text_postings and i in self.text_postings[t]:
@@ -231,24 +370,33 @@ class InvertedIndex:
                 coverage = terms_matched / len(query_tokens_for_scoring) if query_tokens_for_scoring else 1.0
                 score *= (coverage ** 2.0)
 
-                # Query Attribute Reinforcement (Color & Audience)
-                p = self.products[i]
+                # Exact name and phrase bonuses
+                if clean_query_lower == p_name:
+                    score += 100.0
+                elif clean_query_lower in p_name:
+                    score += 40.0
+                elif all(t in p_name for t in primary_tokens if len(t) > 1):
+                    score += 25.0
+
+                # Product type alignment bonus
+                if target_types:
+                    if p_type in target_types:
+                        score += 35.0
+                    elif p_type in {'Socks', 'Stain remover spray', 'Shoe care'}:
+                        score *= 0.1  # Strongly demote accessories/care products when clothing/shoes asked
+
+                # Color alignment bonus
                 if prep.inferred_color:
-                    if str(p.get('color') or '').strip().casefold() == prep.inferred_color.casefold():
-                        score += 8.0
+                    if p_color.casefold() == prep.inferred_color.casefold():
+                        score += 25.0
                     else:
-                        score *= 0.5  # Soft down-weight non-matching colors
-                if prep.inferred_audience:
-                    if str(p.get('audience') or '').strip().casefold() == prep.inferred_audience.casefold():
-                        score += 8.0
-                    else:
-                        score *= 0.3  # Down-weight non-matching audiences
+                        score *= 0.2  # Down-weight non-matching color
 
                 if score > 0:
                     scores[i] = score
                     candidate_indices.append(i)
 
-        # 5. Sorting and Tie-Breaking
+        # 6. Sorting and Tie-Breaking
         if sort_by == 'relevance':
             if has_query:
                 if reverse:
