@@ -15,8 +15,8 @@ TARGET_PRODUCT_TYPES: Dict[str, Set[str]] = {
     'dresses': {'Dress'},
     'gown': {'Dress'},
     'gowns': {'Dress'},
-    'shirt': {'Shirt', 'T-shirt', 'Polo shirt'},
-    'shirts': {'Shirt', 'T-shirt', 'Polo shirt'},
+    'shirt': {'Shirt'},
+    'shirts': {'Shirt'},
     'tshirt': {'T-shirt'},
     't-shirt': {'T-shirt'},
     'tshirts': {'T-shirt'},
@@ -316,29 +316,39 @@ class InvertedIndex:
             # Tier 1: All target tokens matched
             candidates = [idx for idx, count in hit_counts.items() if count == num_tokens] if num_tokens > 0 else []
 
-            # Tier 2: Enrich when candidates < 10 and multiple tokens exist
-            if len(candidates) < 10 and num_tokens > 1:
+            # Tier 2: If expanded intent tokens exist (occasion/style queries), prioritize items matching both primary hits and expanded intents
+            if len(candidates) < 20 and expanded_hit_counts:
+                for idx, exp_count in expanded_hit_counts.most_common(500):
+                    if idx in hit_counts and idx not in candidates:
+                        if not target_types or self.products[idx].get('product_type') in target_types:
+                            candidates.append(idx)
+                            if len(candidates) >= 200:
+                                break
+
+            # Tier 3: Enrich when candidates < 20 and multiple tokens exist
+            if len(candidates) < 20 and num_tokens > 1:
                 if target_types:
                     for idx, count in hit_counts.items():
                         if count >= num_tokens - 1 and idx not in candidates:
                             if self.products[idx].get('product_type') in target_types:
                                 candidates.append(idx)
-                                if len(candidates) >= 100:
+                                if len(candidates) >= 200:
                                     break
                 elif num_tokens >= 3:
                     for idx, count in hit_counts.items():
                         if count >= num_tokens - 1 and idx not in candidates:
                             candidates.append(idx)
-                            if len(candidates) >= 100:
+                            if len(candidates) >= 200:
                                 break
 
-            # Tier 3: If still sparse or empty, and expanded intent tokens exist (occasion queries)
+            # Tier 4: If still sparse or empty, add pure expanded intent tokens
             if len(candidates) < 10 and expanded_hit_counts:
                 for idx, exp_count in expanded_hit_counts.most_common(200):
                     if idx not in candidates:
-                        candidates.append(idx)
-                        if len(candidates) >= 100:
-                            break
+                        if not target_types or self.products[idx].get('product_type') in target_types:
+                            candidates.append(idx)
+                            if len(candidates) >= 100:
+                                break
 
             # Filter candidates by explicit string filter set if present
             if candidate_set is not None:
@@ -346,7 +356,19 @@ class InvertedIndex:
 
             # Filter by audience cluster if audience was inferred
             if allowed_audiences is not None:
-                aud_filtered = [i for i in candidates if self.products[i].get('audience') in allowed_audiences]
+                aud_filtered = []
+                query_has_sport = any(w in clean_raw_query.casefold() for w in ('sport', 'gym', 'workout', 'running', 'fitness', 'athletic', 'training'))
+                for i in candidates:
+                    cand_p = self.products[i]
+                    c_aud = cand_p.get('audience') or ''
+                    c_sec = (cand_p.get('section') or '').casefold()
+                    if c_aud in allowed_audiences:
+                        aud_filtered.append(i)
+                    elif c_aud == 'Sport' and query_has_sport:
+                        if prep.inferred_audience == 'Menswear' and 'men' in c_sec:
+                            aud_filtered.append(i)
+                        elif prep.inferred_audience == 'Ladieswear' and 'ladies' in c_sec:
+                            aud_filtered.append(i)
                 if aud_filtered:
                     candidates = aud_filtered
 
@@ -418,15 +440,55 @@ class InvertedIndex:
                 if target_types:
                     if p_type in target_types:
                         score += 35.0
-                    elif p_type in {'Socks', 'Stain remover spray', 'Shoe care'}:
-                        score *= 0.1  # Strongly demote accessories/care products when clothing/shoes asked
-
-                # Color alignment bonus
-                if prep.inferred_color:
-                    if p_color.casefold() == prep.inferred_color.casefold():
-                        score += 25.0
                     else:
-                        score *= 0.2  # Down-weight non-matching color
+                        score *= 0.35  # Strongly prioritize requested product type
+
+                # Color alignment with color family tolerance
+                if prep.inferred_color:
+                    inf_folded = prep.inferred_color.casefold()
+                    p_col_folded = p_color.casefold()
+                    if p_col_folded == inf_folded:
+                        score += 35.0
+                    elif inf_folded in p_col_folded or p_col_folded in inf_folded:
+                        score += 15.0
+                    else:
+                        score *= 0.20  # Down-weight non-matching color
+
+                # Pattern alignment
+                if prep.inferred_pattern:
+                    cand_pat = (p.get('pattern') or '').casefold()
+                    if cand_pat == prep.inferred_pattern.casefold():
+                        score += 30.0
+                    else:
+                        score *= 0.25  # Down-weight non-matching pattern
+
+                # Audience alignment: prioritize adult fashion unless child/baby requested
+                child_tokens = {'baby', 'babies', 'infant', 'toddler', 'toddlers', 'kid', 'kids', 'child', 'children', 'boy', 'boys', 'girl', 'girls'}
+                wants_child = any(t in child_tokens for t in primary_tokens)
+                p_aud = p.get('audience') or ''
+                is_child_aud = p_aud in {'Baby Sizes 50-98', 'Children Sizes 92-140', 'Children Sizes 134-170', 'Children Accessories, Swimwear'}
+
+                if not wants_child and is_child_aud:
+                    score *= 0.65  # Demote infant/child clothing when general adult shopping intended
+                elif wants_child and is_child_aud:
+                    score += 25.0  # Boost children products when explicitly requested
+                elif wants_child and not is_child_aud:
+                    score *= 0.35  # Demote adult products when child/baby explicitly requested
+
+                # Inferred audience preference
+                if prep.inferred_audience:
+                    if p_aud == prep.inferred_audience:
+                        score += 25.0
+                    elif p_aud in AUDIENCE_CLUSTERS.get(prep.inferred_audience, set()):
+                        score += 5.0
+
+                # Formality and occasion alignment
+                is_formal_query = any(w in primary_tokens for w in ('formal', 'interview', 'suit', 'slacks', 'tailored', 'business', 'office'))
+                if is_formal_query:
+                    if any(w in p_name for w in ('cargo', 'sport', 'jogger', 'drawstring', 'sweat', 'track', 'running', 'gym', 'casual')):
+                        score *= 0.1
+                    if any(w in p_name for w in ('suit', 'slacks', 'formal', 'creased', 'tailored', 'wool')):
+                        score += 35.0
 
                 if score > 0:
                     scores[i] = score
@@ -435,10 +497,31 @@ class InvertedIndex:
         # 6. Sorting and Tie-Breaking
         if sort_by == 'relevance':
             if has_query:
+                # Sort candidates by raw score descending
+                candidate_indices.sort(key=lambda idx: (-scores[idx], self.ids[idx]))
+
+                # Apply near-duplicate diversification across candidate pool
+                seen_base_names: Dict[str, int] = defaultdict(int)
+                adjusted_scores: Dict[int, float] = {}
+                for idx in candidate_indices:
+                    p_name_raw = self.products[idx].get('name') or ''
+                    base_name = re.sub(r'\s*\(?\d+\)?$', '', p_name_raw).strip().casefold()
+                    count = seen_base_names[base_name]
+                    seen_base_names[base_name] += 1
+                    if count == 0:
+                        discount = 1.0
+                    elif count == 1:
+                        discount = 0.85
+                    elif count == 2:
+                        discount = 0.68
+                    else:
+                        discount = 0.45
+                    adjusted_scores[idx] = scores[idx] * discount
+
                 if reverse:
-                    candidate_indices.sort(key=lambda i: (-scores[i], self.ids[i]))
+                    candidate_indices.sort(key=lambda idx: (-adjusted_scores[idx], self.ids[idx]))
                 else:
-                    candidate_indices.sort(key=lambda i: (scores[i], self.ids[i]))
+                    candidate_indices.sort(key=lambda idx: (adjusted_scores[idx], self.ids[idx]))
             else:
                 candidate_indices.sort(key=lambda i: self.ids[i])
 

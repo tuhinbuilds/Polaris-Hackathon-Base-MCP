@@ -21,7 +21,10 @@ COMPLEMENT_INDICATORS = re.compile(
     re.IGNORECASE
 )
 
-SPLIT_CONJUNCTIONS = re.compile(r'\s+(?:and|plus|\&|or)\s+|\s*,\s*', re.IGNORECASE)
+SPLIT_CONJUNCTIONS = re.compile(
+    r'\s*(?:,\s*(?:and|or)\s*|,\s*|\s+(?:and|plus|\&|or)\s+)',
+    re.IGNORECASE
+)
 
 PRICE_PATTERN = re.compile(
     r'\b(?:under|below|less\s+than|up\s+to|at\s+most|max(?:imum)?)\s+(?:inr\s*|rs\.?\s*|₹\s*)?(\d+)\b',
@@ -50,9 +53,19 @@ def parse_mixed_choices(
     if COMPLEMENT_INDICATORS.search(query_str):
         return None
 
-    parts = SPLIT_CONJUNCTIONS.split(query_str)
+    parts = [p.strip() for p in SPLIT_CONJUNCTIONS.split(query_str) if p.strip()]
     if len(parts) < 2:
         return None
+
+    # Ellipsis resolution for 'or' alternatives (e.g. 'black or white dress' -> 'black dress', 'white dress')
+    if len(parts) == 2 and re.search(r'\b(?:or)\b', query_str, re.IGNORECASE):
+        words0 = set(re.findall(r'\w+', parts[0].casefold()))
+        words1 = set(re.findall(r'\w+', parts[1].casefold()))
+        g0 = words0 & GARMENT_KEYWORDS
+        g1 = words1 & GARMENT_KEYWORDS
+        if not g0 and g1:
+            shared_noun = sorted(list(g1), key=lambda x: parts[1].casefold().find(x))[0]
+            parts[0] = f"{parts[0]} {shared_noun}"
 
     # Validate that every part contains at least one distinct garment product type
     parsed_parts: List[Tuple[str, Set[str]]] = []

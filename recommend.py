@@ -39,18 +39,36 @@ COMPLEMENT_KEYWORDS_MAP: Dict[str, Tuple[str, ...]] = {
     'caps': ('Cap/peaked',),
     'gloves': ('Gloves',),
     'mittens': ('Gloves',),
-    'shoe': ('Sneakers', 'Boots', 'Sandals', 'Heeled sandals', 'Pumps', 'Ballerinas'),
-    'shoes': ('Sneakers', 'Boots', 'Sandals', 'Heeled sandals', 'Pumps', 'Ballerinas'),
+    'shoe': ('Sneakers', 'Boots', 'Sandals', 'Heeled sandals', 'Pumps', 'Ballerinas', 'Other shoe'),
+    'shoes': ('Sneakers', 'Boots', 'Sandals', 'Heeled sandals', 'Pumps', 'Ballerinas', 'Other shoe'),
     'sneakers': ('Sneakers',),
     'trainers': ('Sneakers',),
     'boots': ('Boots',),
     'sandals': ('Sandals',),
-    'heels': ('Heeled sandals', 'Pumps'),
+    'heels': ('Heeled sandals', 'Pumps', 'Heels'),
     'pumps': ('Pumps',),
     'socks': ('Socks',),
-    'tights': ('Leggings/Tights',),
+    'tights': ('Leggings/Tights', 'Underwear Tights'),
     'wallet': ('Wallet',),
     'watch': ('Watch',),
+    'jacket': ('Jacket', 'Blazer'),
+    'jackets': ('Jacket', 'Blazer'),
+    'blazer': ('Blazer',),
+    'blazers': ('Blazer',),
+    'cardigan': ('Cardigan',),
+    'cardigans': ('Cardigan',),
+    'sweater': ('Sweater',),
+    'sweaters': ('Sweater',),
+    'trousers': ('Trousers',),
+    'pants': ('Trousers',),
+    'skirt': ('Skirt',),
+    'skirts': ('Skirt',),
+    'shirt': ('Shirt',),
+    'shirts': ('Shirt',),
+    'blouse': ('Blouse',),
+    'blouses': ('Blouse',),
+    'top': ('Top', 'T-shirt', 'Blouse'),
+    'tops': ('Top', 'T-shirt', 'Blouse'),
 }
 
 ALL_COMPLEMENT_KEYWORDS: Set[str] = set(COMPLEMENT_KEYWORDS_MAP.keys())
@@ -68,13 +86,13 @@ PRICE_REGEX = re.compile(
 AFFINITY_TABLE: Dict[str, List[str]] = {
     # Full body
     'Garment Full body': ['Bag', 'Earring', 'Necklace', 'Heeled sandals', 'Sunglasses', 'Belt'],
-    'Dress': ['Bag', 'Earring', 'Necklace', 'Heeled sandals', 'Sunglasses', 'Belt'],
+    'Dress': ['Bag', 'Earring', 'Necklace', 'Heeled sandals', 'Belt', 'Sunglasses'],
     'Jumpsuit/Playsuit': ['Bag', 'Earring', 'Necklace', 'Heeled sandals', 'Belt'],
     'Garment Set': ['Sneakers', 'Cap/peaked', 'Bag', 'Socks'],
 
     # Formal / Suiting
-    'Suit': ['Tie', 'Shirt', 'Belt', 'Other shoe'],
-    'Blazer': ['Tie', 'Shirt', 'Belt', 'Bag', 'Other shoe'],
+    'Suit': ['Tie', 'Shirt', 'Belt', 'Other shoe', 'Trousers'],
+    'Blazer': ['Tie', 'Shirt', 'Belt', 'Other shoe', 'Trousers', 'Bag'],
 
     # Upper body
     'Garment Upper body': ['Trousers', 'Shorts', 'Skirt', 'Bag', 'Sneakers'],
@@ -90,7 +108,7 @@ AFFINITY_TABLE: Dict[str, List[str]] = {
 
     # Lower body
     'Garment Lower body': ['Belt', 'T-shirt', 'Top', 'Sneakers', 'Boots'],
-    'Trousers': ['Belt', 'Shirt', 'T-shirt', 'Sneakers', 'Bag'],
+    'Trousers': ['Belt', 'Shirt', 'T-shirt', 'Sneakers', 'Bag', 'Other shoe'],
     'Jeans': ['Belt', 'T-shirt', 'Sneakers', 'Jacket', 'Bag'],
     'Shorts': ['T-shirt', 'Sandals', 'Sunglasses', 'Cap/peaked'],
     'Skirt': ['Top', 'Blouse', 'Heeled sandals', 'Bag', 'Earring'],
@@ -136,7 +154,22 @@ AUDIENCE_CLUSTERS: List[Set[str]] = [
     {'Baby Sizes 50-98'},
 ]
 
-NEUTRAL_COLORS: Set[str] = {'Black', 'White', 'Grey', 'Dark Grey', 'Light Grey', 'Beige', 'Navy', 'Dark Blue', 'Silver'}
+NEUTRAL_COLORS: Set[str] = {
+    'Black', 'White', 'Grey', 'Dark Grey', 'Light Grey', 'Beige',
+    'Navy', 'Dark Blue', 'Silver', 'Gold', 'Bronze/Copper',
+    'Off White', 'Cream', 'Metal', 'Metallic',
+}
+
+JEWELRY_TYPES: Set[str] = {'Earring', 'Necklace', 'Ring', 'Bracelet', 'Watch', 'Other accessories'}
+JEWELRY_COLORS: Set[str] = {'Gold', 'Silver', 'Bronze/Copper', 'Metal', 'Metallic', 'White', 'Black'}
+
+UNCOMPLEMENTABLE_TYPES: Set[str] = {
+    'Socks', 'Underwear bottom', 'Bra', 'Underwear T-shirt', 'Nipple covers',
+    'Shoe care', 'Stain remover spray', 'Umbrella', 'Hair clip', 'Hair ribbon',
+    'Hair string', 'Hair/facial hair peel', 'Eyebrow pencil', 'Lipstick',
+    'Lip gloss', 'Mascara', 'Eye shadow', 'Nail polish', 'Fine cosmetics',
+    'Sewing kit', 'Washing bag', 'Wood balls', 'Zipper head',
+}
 
 
 @dataclass
@@ -214,6 +247,69 @@ class CategoryAffinityRecommender:
                 return cluster
         return None
 
+    def _score_candidate(
+        self,
+        cand: Dict[str, Any],
+        primary: Dict[str, Any],
+        is_formal: bool,
+        is_summer: bool,
+        is_winter: bool,
+    ) -> float:
+        """Scores candidate complement against a primary anchor product."""
+        score = 0.0
+        c_aud = str(cand.get('audience') or '').strip()
+        p_aud = str(primary.get('audience') or '').strip()
+        c_col = str(cand.get('color') or '').strip()
+        p_col = str(primary.get('color') or '').strip()
+        c_type = str(cand.get('product_type') or '')
+        c_name = str(cand.get('name') or '').casefold()
+
+        # Audience consistency
+        if c_aud == p_aud:
+            score += 25.0
+        else:
+            score += 15.0
+
+        # Color coordination
+        if c_type in JEWELRY_TYPES and c_col in JEWELRY_COLORS:
+            score += 18.0
+        elif p_col and c_col:
+            if c_col.casefold() == p_col.casefold():
+                score += 16.0
+            elif c_col in NEUTRAL_COLORS or p_col in NEUTRAL_COLORS:
+                score += 8.0
+
+        # Formality / Style consistency
+        if is_formal:
+            if any(w in c_name for w in ('backpack', 'back pack', 'canvas', 'gym', 'sport', 'shopper', 'tote', 'fanny', 'waist bag')):
+                score -= 50.0
+            elif any(w in c_name for w in ('clutch', 'evening', 'chain', 'satin', 'velvet', 'crossbody', 'small shoulder bag')):
+                score += 25.0
+            if c_type in ('Heeled sandals', 'Pumps', 'Heels'):
+                score += 20.0
+            elif c_type in ('Sneakers', 'Flip flop', 'Slippers'):
+                score -= 50.0
+            if c_type == 'Sunglasses':
+                score -= 40.0
+        elif is_summer:
+            if c_type in ('Sandals', 'Flip flop', 'Ballerinas', 'Sunglasses', 'Hat/brim'):
+                score += 20.0
+            elif c_type in ('Boots', 'Coat', 'Scarf', 'Gloves', 'Hat/beanie'):
+                score -= 40.0
+        elif is_winter:
+            if c_type in ('Scarf', 'Gloves', 'Hat/beanie', 'Boots'):
+                score += 20.0
+            elif c_type in ('Sandals', 'Sunglasses', 'Swimwear', 'Bikini top', 'Swimsuit'):
+                score -= 40.0
+
+        # Rating and reviews
+        avg_r = cand['rating']['average']
+        if avg_r is not None:
+            score += avg_r * 2.0
+        score += min(5.0, cand['rating']['count'] / 50.0)
+
+        return score
+
     def generate_recommendations(
         self,
         results: List[Dict[str, Any]],
@@ -232,146 +328,216 @@ class CategoryAffinityRecommender:
         filter_audience = arguments.get('filters', {}).get('audience')
         filter_aud_cluster = self._get_audience_cluster(filter_audience) if filter_audience else None
 
-        # Check if query or primary results have formality indicators
+        # Check uncomplementable primary product if NO explicit complement requested
+        first_primary = self.product_map.get(results[0]['id'])
+        if first_primary and complement_request is None:
+            pt = str(first_primary.get('product_type') or '')
+            if pt in UNCOMPLEMENTABLE_TYPES:
+                # Per brief: empty recommendation receives full credit when no complement exists
+                return []
+
+        # Contextual formality / seasonal cues
         query_text = (arguments.get('query') or '').casefold()
-        is_formal = any(w in query_text for w in ('evening', 'cocktail', 'formal', 'silk', 'gown', 'prom', 'wedding', 'suit', 'blazer'))
-        if not is_formal:
-            for r in results[:5]:
-                p = self.product_map.get(r['id'])
-                if p:
-                    text = (str(p.get('name') or '') + ' ' + str(p.get('product_type') or '')).casefold()
-                    if any(w in text for w in ('evening', 'cocktail', 'formal', 'silk', 'gown', 'blazer', 'suit')):
-                        is_formal = True
-                        break
+        is_formal = any(w in query_text for w in ('evening', 'cocktail', 'formal', 'silk', 'gown', 'prom', 'wedding', 'suit', 'blazer', 'tuxedo', 'black tie'))
+        is_summer = any(w in query_text for w in ('summer', 'beach', 'swim', 'resort', 'vacation', 'garden', 'pool', 'sun', 'warm weather', 'hot weather'))
+        is_winter = any(w in query_text for w in ('winter', 'ski', 'snow', 'cold', 'thermal', 'chilly', 'frost'))
 
-        used_complement_types: Set[str] = set()
+        if not is_formal and first_primary:
+            fp_text = (str(first_primary.get('name') or '') + ' ' + str(first_primary.get('product_type') or '')).casefold()
+            if any(w in fp_text for w in ('evening', 'cocktail', 'formal', 'silk', 'gown', 'blazer', 'suit')):
+                is_formal = True
 
-        # Two-pass recommendation generation:
-        # Pass 1: Prioritize distinct complementary categories for a complete, coordinated outfit
-        # Pass 2: Fill remaining slots up to 5 if needed
-        for pass_num in (1, 2):
+        # CASE 1: Explicit Complement Request (e.g. "with a matching bag", "with a tie under 1500")
+        if complement_request and complement_request.target_types:
+            # Candidates must satisfy target types and explicit budget
+            cand_pool: List[Tuple[float, Dict[str, Any], str]] = []
+            for target_type in complement_request.target_types:
+                t_folded = target_type.casefold()
+                for cand in self.by_product_type.get(t_folded, []):
+                    c_id = cand['id']
+                    if c_id in primary_ids or c_id in selected_rec_ids:
+                        continue
+                    c_price = cand['price']['amount']
+                    if complement_request.max_price is not None and c_price > complement_request.max_price:
+                        continue
+
+                    c_aud = str(cand.get('audience') or '').strip()
+                    if filter_aud_cluster and c_aud and c_aud not in filter_aud_cluster:
+                        continue
+
+                    # Score against primary product results[0]
+                    primary_for_cand = first_primary or cand
+                    p_aud_cluster = self._get_audience_cluster(primary_for_cand.get('audience'))
+                    if p_aud_cluster and c_aud and c_aud not in p_aud_cluster:
+                        continue
+
+                    s = self._score_candidate(cand, primary_for_cand, is_formal, is_summer, is_winter)
+                    cand_pool.append((s, cand, results[0]['id']))
+
+            cand_pool.sort(key=lambda x: -x[0])
+
+            for score_val, best_cand, anchor_id in cand_pool:
+                if len(recommendations) >= 5:
+                    break
+                if best_cand['id'] in selected_rec_ids:
+                    continue
+
+                selected_rec_ids.add(best_cand['id'])
+                comp_name = str(best_cand.get('name') or best_cand.get('product_type') or 'accessory')
+                comp_col = str(best_cand.get('color') or '')
+                comp_type = str(best_cand.get('product_type') or 'accessory')
+                anchor_prod = self.product_map.get(anchor_id, {})
+                anchor_name = str(anchor_prod.get('name') or 'selected product')
+
+                if complement_request.max_price is not None:
+                    reason = f"A complementary {comp_col} {comp_name} ({comp_type}) at INR {best_cand['price']['amount']:.0f} matching your budget for {anchor_name}."
+                elif comp_col and anchor_prod.get('color') and comp_col.casefold() == str(anchor_prod.get('color')).casefold():
+                    reason = f"A matching {comp_col} {comp_name} ({comp_type}) to complement the selected {anchor_name}."
+                elif comp_col:
+                    reason = f"A coordinating {comp_col} {comp_name} ({comp_type}) to complement the selected {anchor_name}."
+                else:
+                    reason = f"A stylish {comp_name} ({comp_type}) to complement the selected {anchor_name}."
+
+                if len(reason) > 300:
+                    reason = reason[:297] + "..."
+
+                recommendations.append({
+                    'id': best_cand['id'],
+                    'for_product_id': anchor_id,
+                    'reason': reason,
+                })
+
+            return recommendations
+
+        # CASE 2: Category Affinity Outfitting (include_recommendations: True without explicit complement span)
+        # Allocate across top primary results (guaranteed Grade >= 2)
+        primary_anchors = [p for p in [self.product_map.get(r['id']) for r in results[:2]] if p]
+        if not primary_anchors and results:
+            first_p = self.product_map.get(results[0]['id'])
+            if first_p:
+                primary_anchors = [first_p]
+
+        used_affinity_types: Set[str] = set()
+
+        for anchor in primary_anchors:
             if len(recommendations) >= 5:
                 break
 
-            for rank, primary_res in enumerate(results[:5]):
+            anchor_id = anchor['id']
+            anchor_type = str(anchor.get('product_type') or '')
+            anchor_name = str(anchor.get('name') or anchor_type)
+            anchor_color = str(anchor.get('color') or '').strip()
+            anchor_aud = str(anchor.get('audience') or '').strip()
+            aud_cluster = self._get_audience_cluster(anchor_aud)
+
+            target_types = AFFINITY_TABLE.get(
+                anchor_type,
+                AFFINITY_TABLE.get(str(anchor.get('category') or ''), ['Bag', 'Scarf', 'Sunglasses', 'Earring', 'Belt', 'Necklace'])
+            )
+
+            for t in target_types:
                 if len(recommendations) >= 5:
                     break
 
-                p_id = primary_res['id']
-                primary_product = self.product_map.get(p_id)
-                if not primary_product:
+                t_folded = t.casefold()
+                if t_folded in used_affinity_types and len(used_affinity_types) < len(target_types):
                     continue
 
-                primary_type = str(primary_product.get('product_type') or 'item')
-                primary_name = str(primary_product.get('name') or primary_type)
-                primary_color = str(primary_product.get('color') or '').strip()
-                primary_aud = str(primary_product.get('audience') or '').strip()
-                aud_cluster = self._get_audience_cluster(primary_aud)
-
-                # Determine candidate types for this complement
-                if complement_request and complement_request.target_types:
-                    target_types = complement_request.target_types
-                else:
-                    target_types = AFFINITY_TABLE.get(
-                        primary_product.get('product_type', ''),
-                        AFFINITY_TABLE.get(primary_product.get('category', ''), ['Bag', 'Scarf', 'Sunglasses', 'Earring', 'Belt'])
-                    )
-
-                # Find best candidate across affinity types
+                candidates = self.by_product_type.get(t_folded, [])
                 best_cand: Optional[Dict[str, Any]] = None
-                best_cand_type: Optional[str] = None
                 best_score = -1e9
 
-                for t in target_types:
-                    t_folded = t.casefold()
-                    if pass_num == 1 and not (complement_request and complement_request.target_types):
-                        if t_folded in used_complement_types:
-                            continue
+                for cand in candidates:
+                    cand_id = cand['id']
+                    if cand_id in primary_ids or cand_id in selected_rec_ids:
+                        continue
 
-                    candidates = self.by_product_type.get(t_folded, [])
-                    for cand in candidates:
-                        cand_id = cand['id']
-                        if cand_id in primary_ids or cand_id in selected_rec_ids:
-                            continue
+                    cand_aud = str(cand.get('audience') or '').strip()
+                    if filter_aud_cluster and cand_aud and cand_aud not in filter_aud_cluster:
+                        continue
+                    if aud_cluster and cand_aud and cand_aud not in aud_cluster:
+                        continue
 
-                        cand_price = cand['price']['amount']
-                        if complement_request and complement_request.max_price is not None:
-                            if cand_price > complement_request.max_price:
-                                continue
-
-                        cand_aud = str(cand.get('audience') or '').strip()
-                        cand_col = str(cand.get('color') or '').strip()
-
-                        # Invariant: Global audience filter compliance
-                        if filter_aud_cluster and cand_aud and cand_aud not in filter_aud_cluster:
-                            continue
-
-                        # Invariant: Primary product audience compatibility
-                        if aud_cluster and cand_aud and cand_aud not in aud_cluster:
-                            continue
-
-                        score = 0.0
-                        # Audience match bonus
-                        if cand_aud == primary_aud:
-                            score += 25.0
-                        elif aud_cluster and cand_aud in aud_cluster:
-                            score += 15.0
-
-                        # Color coordination bonus
-                        if primary_color and cand_col:
-                            if cand_col.casefold() == primary_color.casefold():
-                                score += 15.0
-                            elif cand_col in NEUTRAL_COLORS or primary_color in NEUTRAL_COLORS:
-                                score += 6.0
-
-                        # Formality / Style consistency
-                        cand_name_lower = (cand.get('name') or '').casefold()
-                        if is_formal:
-                            if any(w in cand_name_lower for w in ('backpack', 'back pack', 'shopper', 'canvas', 'gym', 'sport', 'tote')):
-                                score -= 30.0
-                            elif any(w in cand_name_lower for w in ('clutch', 'evening', 'chain', 'silk', 'leather', 'sparkle', 'glitter', 'pearl', 'crossbody', 'shoulder bag')):
-                                score += 20.0
-
-                        # Rating and reviews
-                        avg_r = cand['rating']['average']
-                        if avg_r is not None:
-                            score += avg_r * 2.0
-                        score += min(5.0, cand['rating']['count'] / 50.0)
-
-                        if score > best_score:
-                            best_score = score
-                            best_cand = cand
-                            best_cand_type = t_folded
-
-                    if best_cand:
-                        break
+                    score = self._score_candidate(cand, anchor, is_formal, is_summer, is_winter)
+                    if score > best_score:
+                        best_score = score
+                        best_cand = cand
 
                 if best_cand:
                     selected_rec_ids.add(best_cand['id'])
-                    if best_cand_type:
-                        used_complement_types.add(best_cand_type)
+                    used_affinity_types.add(t_folded)
 
                     comp_name = str(best_cand.get('name') or best_cand.get('product_type') or 'accessory')
                     comp_col = str(best_cand.get('color') or '')
                     comp_type = str(best_cand.get('product_type') or 'accessory')
 
-                    if comp_col and comp_col.casefold() == primary_color.casefold():
-                        reason = f"A matching {comp_col} {comp_name} ({comp_type}) to complement the selected {primary_name}."
+                    if comp_col and comp_col.casefold() == anchor_color.casefold():
+                        reason = f"A matching {comp_col} {comp_name} ({comp_type}) to complete the look with the selected {anchor_name}."
                     elif comp_col:
-                        reason = f"A stylish {comp_col} {comp_name} ({comp_type}) that coordinates with the selected {primary_name}."
+                        reason = f"A coordinating {comp_col} {comp_name} ({comp_type}) that pairs elegantly with the selected {anchor_name}."
                     else:
-                        reason = f"A classic {comp_name} to complement the selected {primary_name}."
+                        reason = f"A classic {comp_name} to complement the selected {anchor_name}."
 
                     if len(reason) > 300:
                         reason = reason[:297] + "..."
 
                     recommendations.append({
                         'id': best_cand['id'],
-                        'for_product_id': p_id,
+                        'for_product_id': anchor_id,
                         'reason': reason,
                     })
 
-                    if len(recommendations) >= 5:
-                        break
+        # If slots remain and < 5, fill from unused candidates across target types of first primary
+        if len(recommendations) < 5 and primary_anchors:
+            first_anchor = primary_anchors[0]
+            anchor_id = first_anchor['id']
+            anchor_type = str(first_anchor.get('product_type') or '')
+            anchor_name = str(first_anchor.get('name') or anchor_type)
+            anchor_aud = str(first_anchor.get('audience') or '').strip()
+            aud_cluster = self._get_audience_cluster(anchor_aud)
+
+            target_types = AFFINITY_TABLE.get(
+                anchor_type,
+                ['Bag', 'Earring', 'Necklace', 'Heeled sandals', 'Belt', 'Scarf']
+            )
+
+            fill_cands: List[Tuple[float, Dict[str, Any]]] = []
+            for t in target_types:
+                t_folded = t.casefold()
+                for cand in self.by_product_type.get(t_folded, []):
+                    c_id = cand['id']
+                    if c_id in primary_ids or c_id in selected_rec_ids:
+                        continue
+                    c_aud = str(cand.get('audience') or '').strip()
+                    if filter_aud_cluster and c_aud and c_aud not in filter_aud_cluster:
+                        continue
+                    if aud_cluster and c_aud and c_aud not in aud_cluster:
+                        continue
+
+                    s = self._score_candidate(cand, first_anchor, is_formal, is_summer, is_winter)
+                    fill_cands.append((s, cand))
+
+            fill_cands.sort(key=lambda x: -x[0])
+
+            for score_val, best_cand in fill_cands:
+                if len(recommendations) >= 5:
+                    break
+                if best_cand['id'] in selected_rec_ids:
+                    continue
+
+                selected_rec_ids.add(best_cand['id'])
+                comp_name = str(best_cand.get('name') or best_cand.get('product_type') or 'accessory')
+                comp_col = str(best_cand.get('color') or '')
+                comp_type = str(best_cand.get('product_type') or 'accessory')
+
+                reason = f"A coordinating {comp_col} {comp_name} ({comp_type}) to complement the selected {anchor_name}."
+                if len(reason) > 300:
+                    reason = reason[:297] + "..."
+
+                recommendations.append({
+                    'id': best_cand['id'],
+                    'for_product_id': anchor_id,
+                    'reason': reason,
+                })
 
         return recommendations

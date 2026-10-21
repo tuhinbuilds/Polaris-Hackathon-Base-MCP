@@ -44,7 +44,13 @@ OCCASION_INTENTS: List[Tuple[re.Pattern, List[str]]] = [
      ['pyjamas', 'joggers', 'hoodie', 'soft', 'sweatshirt']),
     (re.compile(r'\b(?:dinner\s+date|evening\s+out|date\s+night|dinner|evening)\b', re.IGNORECASE),
      ['dress', 'blazer', 'shirt', 'evening', 'party']),
-    (re.compile(r'\b(?:summer\s+vacation|vacation|holiday|resort|beach\s+holiday)\b', re.IGNORECASE),
+    (re.compile(r'\b(?:job\s+interview|interview|interview\s+outfit|interview\s+clothes)\b', re.IGNORECASE),
+     ['blazer', 'suit', 'trousers', 'shirt', 'blouse', 'tailored', 'formal']),
+    (re.compile(r'\b(?:garden\s+party|summer\s+party)\b', re.IGNORECASE),
+     ['dress', 'floral', 'skirt', 'blouse', 'summer']),
+    (re.compile(r'\b(?:ski\s+vacation|ski\s+clothes|ski\s+jacket|skiing|snow)\b', re.IGNORECASE),
+     ['jacket', 'coat', 'padded', 'fleece', 'sweater', 'boots', 'gloves']),
+    (re.compile(r'\b(?:summer\s+vacation|beach\s+holiday|summer\s+holiday|resort|beach\s+wear|swimming|poolside)\b', re.IGNORECASE),
      ['summer', 'dress', 'linen', 'shorts', 'swimwear', 'sandals', 'sunglasses']),
     (re.compile(r'\b(?:business\s+casual|office\s+wear|workwear|work\s+attire|for\s+work|office\s+look)\b', re.IGNORECASE),
      ['blazer', 'trousers', 'shirt', 'blouse', 'tailored']),
@@ -60,13 +66,63 @@ OCCASION_INTENTS: List[Tuple[re.Pattern, List[str]]] = [
      ['party', 'dress', 'sequin', 'glitter', 'sparkly']),
     (re.compile(r'\b(?:gym\s+wear|workout|fitness|running)\b', re.IGNORECASE),
      ['sport', 'running', 'tights']),
-    (re.compile(r'\b(?:beach\s+wear|swimming|poolside)\b', re.IGNORECASE),
-     ['swimwear', 'sandals', 'shorts']),
     (re.compile(r'\b(?:formal\s+suit|formal\s+wear|formal\s+outfit|formal)\b', re.IGNORECASE),
      ['suit', 'blazer', 'trousers', 'tailored']),
     (re.compile(r'\b(?:retro|vintage)\b', re.IGNORECASE),
      ['retro', 'vintage']),
+    (re.compile(r'\b(?:breathable|hot\s+weather|warm\s+weather|lightweight\s+clothes)\b', re.IGNORECASE),
+     ['linen', 'cotton', 'shorts', 'dress', 't-shirt', 'summer']),
+    (re.compile(r'\b(?:minimalist|wardrobe\s+basics|capsule\s+wardrobe|chic\s+wardrobe)\b', re.IGNORECASE),
+     ['basics', 'classic', 't-shirt', 'shirt', 'trousers', 'blazer']),
+    (re.compile(r'\b(?:walking|everyday\s+wear|daily\s+wear)\b', re.IGNORECASE),
+     ['sneakers', 't-shirt', 'jeans', 'trousers', 'hoodie']),
+    (re.compile(r'\b(?:thermal\s+layers|thermal|base\s+layer)\b', re.IGNORECASE),
+     ['sweater', 'tights', 'leggings', 'wool', 'cardigan']),
 ]
+
+COMPOUND_COLORS: Dict[str, str] = {
+    'dark blue': 'Dark Blue',
+    'light blue': 'Light Blue',
+    'dark grey': 'Dark Grey',
+    'dark gray': 'Dark Grey',
+    'light grey': 'Light Grey',
+    'light gray': 'Light Grey',
+    'dark green': 'Dark Green',
+    'light green': 'Light Green',
+    'dark red': 'Dark Red',
+    'light pink': 'Light Pink',
+    'dark yellow': 'Dark Yellow',
+    'dark orange': 'Dark Orange',
+    'dark purple': 'Dark Purple',
+    'off white': 'Off White',
+    'light beige': 'Light Beige',
+    'dark beige': 'Dark Beige',
+    'greyish beige': 'Greyish Beige',
+    'greenish khaki': 'Greenish Khaki',
+}
+
+PATTERN_MAP: Dict[str, str] = {
+    'striped': 'Stripe',
+    'stripe': 'Stripe',
+    'stripes': 'Stripe',
+    'check': 'Check',
+    'checked': 'Check',
+    'plaid': 'Check',
+    'tartan': 'Check',
+    'solid': 'Solid',
+    'plain': 'Solid',
+    'dotted': 'Dot',
+    'polka': 'Dot',
+    'dots': 'Dot',
+    'dot': 'Dot',
+    'floral': 'All over pattern',
+    'melange': 'Melange',
+    'lace': 'Lace',
+    'sequin': 'Sequin',
+    'sequins': 'Sequin',
+    'glitter': 'Glittering/Metallic',
+    'metallic': 'Glittering/Metallic',
+}
 
 GENERIC_SHOPPING_WORDS: Set[str] = {
     'outfit', 'outfits', 'clothes', 'clothing', 'attire', 'apparel',
@@ -78,7 +134,11 @@ OCCASION_WORDS: Set[str] = {
     'sleeping', 'sleep', 'lazy', 'sunday', 'relaxing', 'gym', 'workout',
     'running', 'beach', 'poolside', 'office', 'work', 'casual', 'formal',
     'summer', 'winter', 'vacation', 'holiday', 'resort', 'loungewear',
-    'clothes', 'outfit', 'apparel', 'wear', 'look', 'style', 'attire'
+    'clothes', 'outfit', 'apparel', 'wear', 'look', 'style', 'attire',
+    'interview', 'garden', 'breathable', 'minimalist', 'weather', 'ski',
+    'walking', 'chic', 'classy', 'thermal', 'layers', 'travel', 'traveling',
+    'smart', 'hot', 'chilly', 'freezing', 'everyday', 'basics', 'basic',
+    'active', 'activewear', 'lightweight'
 }
 
 AUDIENCE_MAP: Dict[str, str] = {
@@ -123,6 +183,7 @@ class PreprocessedQuery:
     inferred_max_price: Optional[float] = None
     inferred_color: Optional[str] = None
     inferred_audience: Optional[str] = None
+    inferred_pattern: Optional[str] = None
     is_impossible: bool = False
 
 
@@ -224,12 +285,20 @@ def preprocess_query(
             expanded_intent_tokens.extend(intent_words)
 
     # 4. Tokenization & Token Processing
+    # Check for compound color phrases first (e.g. 'dark blue', 'light grey', 'off white')
+    text_lower = text.casefold()
+    inferred_color: Optional[str] = None
+    for phrase, col_val in COMPOUND_COLORS.items():
+        if re.search(r'\b' + re.escape(phrase) + r'\b', text_lower):
+            inferred_color = col_val
+            break
+
     # Handle possessives e.g. women's -> women
     cleaned_punc = re.sub(r"['’]s\b", '', text, flags=re.IGNORECASE)
     raw_tokens = tuple(re.findall(r'[a-z0-9]+', cleaned_punc.casefold()))
 
-    inferred_color: Optional[str] = None
     inferred_audience: Optional[str] = None
+    inferred_pattern: Optional[str] = None
     processed_tokens: List[str] = []
     audience_words_seen: Set[str] = set()
 
@@ -239,8 +308,12 @@ def preprocess_query(
             inferred_audience = AUDIENCE_MAP[t]
             audience_words_seen.add(t)
 
-        # Check color match
-        if t.capitalize() in catalog_colors and not inferred_color:
+        # Check pattern mapping
+        if t in PATTERN_MAP and not inferred_pattern:
+            inferred_pattern = PATTERN_MAP[t]
+
+        # Check single-word color match if no compound color inferred
+        if not inferred_color and t.capitalize() in catalog_colors:
             inferred_color = t.capitalize()
 
         # Check synonym mapping
@@ -291,5 +364,6 @@ def preprocess_query(
         inferred_max_price=inferred_max_price,
         inferred_color=inferred_color,
         inferred_audience=inferred_audience,
+        inferred_pattern=inferred_pattern,
         is_impossible=is_impossible,
     )
