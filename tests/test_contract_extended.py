@@ -218,6 +218,16 @@ class MixedChoiceAndRecommendationContractTests(unittest.TestCase):
         self.assertEqual(recs[0]['for_product_id'], '007')
         self.assertEqual(recs[0]['id'], '008')  # Tie
 
+    def test_mixed_choice_or_conjunction(self):
+        """Mixed-choice query with 'or' conjunction interleaves alternative options."""
+        res = self.catalog.search({'query': 'black jeans or white t-shirts', 'limit': 4})
+        ids = [r['id'] for r in res['results']]
+        self.assertEqual(len(ids), 4)
+        self.assertEqual(ids[0], '003')  # Jeans
+        self.assertEqual(ids[1], '001')  # T-shirt
+        self.assertEqual(ids[2], '004')  # Jeans
+        self.assertEqual(ids[3], '002')  # T-shirt
+
 
 if __name__ == '__main__':
     unittest.main()

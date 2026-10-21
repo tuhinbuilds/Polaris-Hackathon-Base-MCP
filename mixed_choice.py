@@ -12,7 +12,8 @@ GARMENT_KEYWORDS: Set[str] = {
     'leggings', 'bra', 'underwear', 'pyjamas', 'pajamas', 'nightwear', 'robe', 'swimwear',
     'bikini', 'swimsuit', 'shoes', 'sneakers', 'trainers', 'boots', 'sandals', 'heels',
     'bag', 'bags', 'handbag', 'handbags', 'backpack', 'tote', 'scarf', 'scarves', 'hat', 'beanie',
-    'belt', 'belts', 'tie', 'ties', 'sunglasses', 'necklace', 'earrings'
+    'belt', 'belts', 'tie', 'ties', 'sunglasses', 'necklace', 'earrings', 'polo', 'polos',
+    'chinos', 'chino', 'jumpsuit', 'playsuit', 'pumps', 'flats', 'slippers'
 }
 
 COMPLEMENT_INDICATORS = re.compile(
@@ -20,7 +21,7 @@ COMPLEMENT_INDICATORS = re.compile(
     re.IGNORECASE
 )
 
-SPLIT_CONJUNCTIONS = re.compile(r'\s+(?:and|plus|\&)\s+|\s*,\s*', re.IGNORECASE)
+SPLIT_CONJUNCTIONS = re.compile(r'\s+(?:and|plus|\&|or)\s+|\s*,\s*', re.IGNORECASE)
 
 PRICE_PATTERN = re.compile(
     r'\b(?:under|below|less\s+than|up\s+to|at\s+most|max(?:imum)?)\s+(?:inr\s*|rs\.?\s*|₹\s*)?(\d+)\b',

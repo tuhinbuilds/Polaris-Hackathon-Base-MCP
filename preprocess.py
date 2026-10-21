@@ -40,10 +40,18 @@ SYNONYMS: Dict[str, str] = {
 }
 
 OCCASION_INTENTS: List[Tuple[re.Pattern, List[str]]] = [
-    (re.compile(r'\b(?:lazy\s+sunday|sunday\s+lounge|relaxing\s+at\s+home)\b', re.IGNORECASE),
-     ['pyjamas', 'joggers', 'hoodie', 'soft']),
+    (re.compile(r'\b(?:lazy\s+sunday|sunday\s+lounge|relaxing\s+at\s+home|cozy\s+loungewear|loungewear|lounge\s+wear|homewear)\b', re.IGNORECASE),
+     ['pyjamas', 'joggers', 'hoodie', 'soft', 'sweatshirt']),
     (re.compile(r'\b(?:dinner\s+date|evening\s+out|date\s+night|dinner|evening)\b', re.IGNORECASE),
      ['dress', 'blazer', 'shirt', 'evening', 'party']),
+    (re.compile(r'\b(?:summer\s+vacation|vacation|holiday|resort|beach\s+holiday)\b', re.IGNORECASE),
+     ['summer', 'dress', 'linen', 'shorts', 'swimwear', 'sandals', 'sunglasses']),
+    (re.compile(r'\b(?:business\s+casual|office\s+wear|workwear|work\s+attire|for\s+work|office\s+look)\b', re.IGNORECASE),
+     ['blazer', 'trousers', 'shirt', 'blouse', 'tailored']),
+    (re.compile(r'\b(?:wedding\s+guest|wedding\s+attire|wedding\s+outfit|wedding\s+look|wedding)\b', re.IGNORECASE),
+     ['dress', 'cocktail', 'evening', 'suit', 'blazer', 'formal']),
+    (re.compile(r'\b(?:warm\s+winter|winter\s+warm|winter\s+coat|winter\s+jacket|cold\s+winter\s+day|winter\s+day|cold\s+weather|freezing|chilly|cold\s+winter)\b', re.IGNORECASE),
+     ['coat', 'jacket', 'sweater', 'wool', 'warm', 'padded']),
     (re.compile(r'\b(?:sleeping|sleep\s+clothes|sleepwear)\b', re.IGNORECASE),
      ['pyjamas', 'nightwear', 'robe']),
     (re.compile(r'\b(?:rainy\s+day|rain\s+weather|monsoon)\b', re.IGNORECASE),
@@ -60,11 +68,17 @@ OCCASION_INTENTS: List[Tuple[re.Pattern, List[str]]] = [
      ['retro', 'vintage']),
 ]
 
+GENERIC_SHOPPING_WORDS: Set[str] = {
+    'outfit', 'outfits', 'clothes', 'clothing', 'attire', 'apparel',
+    'pieces', 'items', 'wear', 'look', 'style', 'day', 'home'
+}
+
 OCCASION_WORDS: Set[str] = {
     'dinner', 'evening', 'party', 'wedding', 'date', 'prom', 'cocktail',
     'sleeping', 'sleep', 'lazy', 'sunday', 'relaxing', 'gym', 'workout',
     'running', 'beach', 'poolside', 'office', 'work', 'casual', 'formal',
-    'clothes', 'outfit', 'apparel', 'wear', 'look', 'style'
+    'summer', 'winter', 'vacation', 'holiday', 'resort', 'loungewear',
+    'clothes', 'outfit', 'apparel', 'wear', 'look', 'style', 'attire'
 }
 
 AUDIENCE_MAP: Dict[str, str] = {
@@ -240,6 +254,12 @@ def preprocess_query(
 
     # 5. Filter Stopwords
     meaningful_tokens = [t for t in processed_tokens if t not in STOPWORDS]
+    # If other product terms exist besides generic shopping terms, strip them
+    if len(meaningful_tokens) > 1:
+        without_generic = [t for t in meaningful_tokens if t not in GENERIC_SHOPPING_WORDS]
+        if without_generic:
+            meaningful_tokens = without_generic
+
     # If other product terms exist besides the audience word, strip the audience word from text tokens
     if len(meaningful_tokens) > 1 and audience_words_seen:
         meaningful_tokens = [t for t in meaningful_tokens if t not in audience_words_seen]

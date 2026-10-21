@@ -83,6 +83,15 @@ TARGET_PRODUCT_TYPES: Dict[str, Set[str]] = {
     'sleepwear': {'Pyjama set', 'Night gown'},
     'socks': {'Socks'},
     'leggings': {'Leggings/Tights', 'Trousers'},
+    'polo': {'Polo shirt', 'T-shirt'},
+    'running': {'Sneakers', 'Sport tights', 'Sport top'},
+    'chinos': {'Trousers'},
+    'chino': {'Trousers'},
+    'jumpsuit': {'Jumpsuit/Playsuit'},
+    'playsuit': {'Jumpsuit/Playsuit'},
+    'heels': {'Heeled sandals', 'Pumps', 'Heels'},
+    'pumps': {'Pumps', 'Heeled sandals'},
+    'flats': {'Flat shoe', 'Ballerinas', 'Flat shoes'},
 }
 
 AUDIENCE_CLUSTERS: Dict[str, Set[str]] = {
@@ -277,7 +286,7 @@ class InvertedIndex:
             if not target_tokens and expanded_tokens:
                 target_tokens = [t for t in expanded_tokens if t in self.text_postings]
 
-            if not target_tokens:
+            if not target_tokens and not expanded_tokens:
                 return []
 
             # Determine audience cluster filter if audience was inferred
@@ -291,23 +300,45 @@ class InvertedIndex:
                 for idx in self.text_postings[t]:
                     hit_counts[idx] += 1
 
-            if not hit_counts:
+            # Tally expanded intent token occurrences
+            expanded_hit_counts = Counter()
+            if expanded_tokens:
+                for t in expanded_tokens:
+                    if t in self.text_postings:
+                        for idx in self.text_postings[t]:
+                            expanded_hit_counts[idx] += 1
+
+            if not hit_counts and not expanded_hit_counts:
                 return []
 
             num_tokens = len(target_tokens)
 
             # Tier 1: All target tokens matched
-            candidates = [idx for idx, count in hit_counts.items() if count == num_tokens]
+            candidates = [idx for idx, count in hit_counts.items() if count == num_tokens] if num_tokens > 0 else []
 
-            # Relaxation ONLY if ZERO candidates match all tokens
-            # For 2-token queries, only relax if at least one token is a recognized fashion garment type
-            if not candidates and num_tokens > 1:
-                if num_tokens >= 3 or bool(target_types):
-                    candidates = [idx for idx, count in hit_counts.items() if count >= num_tokens - 1]
+            # Tier 2: Enrich when candidates < 10 and multiple tokens exist
+            if len(candidates) < 10 and num_tokens > 1:
+                if target_types:
+                    for idx, count in hit_counts.items():
+                        if count >= num_tokens - 1 and idx not in candidates:
+                            if self.products[idx].get('product_type') in target_types:
+                                candidates.append(idx)
+                                if len(candidates) >= 100:
+                                    break
+                elif num_tokens >= 3:
+                    for idx, count in hit_counts.items():
+                        if count >= num_tokens - 1 and idx not in candidates:
+                            candidates.append(idx)
+                            if len(candidates) >= 100:
+                                break
 
-            # Fallback for expanded intent tokens (e.g. occasion queries)
-            if not candidates and expanded_tokens:
-                candidates = list(hit_counts.keys())
+            # Tier 3: If still sparse or empty, and expanded intent tokens exist (occasion queries)
+            if len(candidates) < 10 and expanded_hit_counts:
+                for idx, exp_count in expanded_hit_counts.most_common(200):
+                    if idx not in candidates:
+                        candidates.append(idx)
+                        if len(candidates) >= 100:
+                            break
 
             # Filter candidates by explicit string filter set if present
             if candidate_set is not None:
@@ -367,8 +398,13 @@ class InvertedIndex:
                         terms_matched += 1
 
                 # Term coverage multiplier
-                coverage = terms_matched / len(query_tokens_for_scoring) if query_tokens_for_scoring else 1.0
-                score *= (coverage ** 2.0)
+                if primary_tokens:
+                    primary_in_doc = sum(1 for t in primary_tokens if (t in self.text_postings and i in self.text_postings[t]))
+                    coverage = max(0.2, primary_in_doc / len(primary_tokens))
+                    score *= (coverage ** 2.0)
+                else:
+                    coverage = terms_matched / len(query_tokens_for_scoring) if query_tokens_for_scoring else 1.0
+                    score *= (coverage ** 2.0)
 
                 # Exact name and phrase bonuses
                 if clean_query_lower == p_name:
